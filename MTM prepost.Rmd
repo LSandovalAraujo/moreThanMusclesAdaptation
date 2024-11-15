@@ -1,0 +1,195 @@
+---
+title: "ABCT Abstract for Taylor"
+author: "Luis Sandoval"
+date: "2024-02-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(stats)
+library(car)
+library(psych)
+```
+
+```{r}
+stpaulPre = read.csv("Saint Paul 1_2024 - MTM MS (1).csv")
+stpaulPost = read.csv("Saint Paul 1_2024 -  MTM MS T2.csv")
+ndPre = read.csv("Notre Dame 1_2024 - MS MTM (1).csv")
+ndPost = read.csv("Notre Dame 1_2024 - MS MTM T2.csv")
+collegiatePre = read.csv("Lou Collegiate 1_2024 - MTM (1).csv")
+collegiatePost = read.csv("Lou Collegiate 1_2024 - MTM T2.csv")
+```
+
+```{r}
+
+colnames(stpaulPre)
+colnames(ndPre) = colnames(stpaulPre)
+colnames(collegiatePre) = colnames(stpaulPre)
+
+preData = rbind(stpaulPre, ndPre, collegiatePre)
+
+unique(preData$Particpant.ID)
+
+preData = na.omit(preData)
+preData = preData[-74,]
+
+hist(preData$ESPI.Score.T1)
+shapiro.test(preData$ESPI.Score.T1) #looks normal enough 
+
+hist(preData$Weight.Stigma)
+shapiro.test(preData$Weight.Stigma) #not normal - consider non-parametric test? 
+
+hist(preData$Body.Dissat.) #definitely not normal
+
+preData$Body.Dissat.logit = log(preData$Body.Dissat.) #log-transformed variable since it's not normal 
+hist(preData$Body.Dissat.logit)
+```
+
+```{r}
+colnames(stpaulPost) 
+colnames(ndPost) = colnames(stpaulPost) 
+colnames(collegiatePost) = colnames(stpaulPost)
+
+postData = rbind(stpaulPost, ndPost, collegiatePost)
+postData = na.omit(postData)
+postData = postData[-68,]
+
+colnames(postData)
+hist(postData$ESPI.Score.T2)
+
+hist(preData$Weight.Stigma)
+hist(postData$Weight.Stigma)
+
+postData$Body.Dissat.logit = log(postData$Body.Dissat.) 
+hist(postData$Body.Dissat.logit)
+```
+```{r}
+colnames(postData)
+
+cleanpre = preData %>% select(Particpant.ID, ESPI.Score.T1, Body.Dissat., Weight.Stigma, Body.Dissat.logit)
+colnames(cleanpre) = c("Particpant.ID", "ESPI.Score.T1", "Body.Dissat.T1", "Weight.Stigma.T1", "Body.Dissat.logit.T1")
+
+cleanpost = postData %>% select("Particpant.ID", "ESPI.Score.T2", "Body.Dissat.", "Weight.Stigma", "Body.Dissat.logit")
+colnames(cleanpost) = c("Particpant.ID", "ESPI.Score.T2", "Body.Dissat.T2", "Weight.Stigma.T2", "Body.Dissat.logit.T2")
+
+fulldat = full_join(cleanpre, cleanpost)
+```
+
+
+```{r}
+describeBy(fulldat)
+
+#EPSI t1 mean = 43.40
+#EPSI t2 mean = 37.41
+
+library(lsr)
+t.test(x = fulldat$ESPI.Score.T1, y = fulldat$ESPI.Score.T2, paired = TRUE, alternative = "greater", na.rm = TRUE) 
+#t(66) = 3.37, p = .001
+cohensD(fulldat$ESPI.Score.T1, fulldat$ESPI.Score.T2) #d = .29
+
+43.40 - 37.41
+```
+
+```{r}
+t.test(x = fulldat$Weight.Stigma.T1, y = fulldat$Weight.Stigma.T2, paired = TRUE, alternative = "greater", na.rm = TRUE) #not significant 
+
+wilcox.test(x = fulldat$Weight.Stigma.T1, y = fulldat$Weight.Stigma.T2, paired = TRUE, alternative = "greater", na.rm = TRUE)
+
+cohensD(fulldat$Weight.Stigma.T1, fulldat$Weight.Stigma.T2) #small effect size, but neither wilcox.test nor t.test was significant
+
+6.81 - 5.87 #mean change of .94
+```
+
+```{r}
+wilcox.test(x = fulldat$Body.Dissat.T1, y = fulldat$Body.Dissat.T2, paired = TRUE, alternative = "greater", na.rm = TRUE) #significant wilcoxon signed rank test 
+
+cohensD(fulldat$Body.Dissat.T1, fulldat$Body.Dissat.T2) #d = .14
+
+6.67 - 5.82 #mean change of .85
+```
+
+```{r}
+vizDat = fulldat[,c("Particpant.ID", "ESPI.Score.T1", "ESPI.Score.T2", "Body.Dissat.T1", "Body.Dissat.T2", "Weight.Stigma.T1", "Weight.Stigma.T2")]
+
+vizDatLong = pivot_longer(vizDat, 
+                          cols = c("ESPI.Score.T1", 
+                                   "ESPI.Score.T2", 
+                                   "Body.Dissat.T1", 
+                                   "Body.Dissat.T2",
+                                   "Weight.Stigma.T1",
+                                   "Weight.Stigma.T2"), 
+                          names_to = "test.time", 
+                          values_to = "score") 
+
+vizDatLong$Test = ifelse(vizDatLong$test.time == "ESPI.Score.T1" | vizDatLong$test.time == "ESPI.Score.T2", "EPSI Total*", ifelse(vizDatLong$test.time == "Weight.Stigma.T1" | vizDatLong$test.time == "Weight.Stigma.T2", "Weight Stigma", "Body Dissatisfaction*"))
+
+vizDatLong$Time = ifelse(vizDatLong$test.time == "ESPI.Score.T1" | vizDatLong$test.time == "Body.Dissat.T1" | vizDatLong$test.time == "Weight.Stigma.T1", "Pre", "Post")
+
+vizDatLong$Time = factor(vizDatLong$Time, levels=c("Pre","Post"))
+
+EPSI = vizDatLong %>% filter(Test == "EPSI Total")
+EPSI = na.omit(EPSI)
+
+ggplot(EPSI, aes(x=Time, y=score, fill=Time)) + 
+  geom_violin() + 
+  labs(title="EPSI Pre to Post", x="Timepoint", y="Total Score") + 
+  scale_fill_brewer(palette="Pastel1") + 
+  theme_classic()
+
+bd = vizDatLong %>% filter(Test == "Body Dissatisfaction")
+bd = na.omit(bd)
+
+ggplot(bd, aes(x=Time, y=score, fill=Time)) + 
+  geom_violin() + 
+  labs(title="Body Dissatisfaction Pre to Post", x="Timepoint", y="Total Score") + 
+  scale_fill_brewer(palette="Pastel1") +
+  theme_classic()
+
+ws = vizDatLong %>% filter(Test == "Body Dissatisfaction")
+ws = na.omit(ws)
+```
+ 
+```{r}
+ggplot(EPSI, aes(x=score, color = Time)) + 
+  geom_density()
+```
+
+```{r}
+library(ggpubr)
+
+figure = ggboxplot(data = vizDatLong,
+         x = "Time",
+         y = "score",
+         id = "Particpant.ID",
+         facet.by = "Test",
+         scales = "free_y",
+         title = "Changes in EPSI Total Scores from Pre- to Post-Program",
+         font.main = c(16, "bold", "dodgerblue4"),
+         xlab = c("Pre", "Post", "Timepoint"),
+         font.x = c(14, "plain", "black"),
+         ylab = "Score",
+         font.y = c(14, "plain", "black"),
+         fill = "Time",
+         line.type = "solid",
+         line.color = "grey2",
+         line.size = 0.2,
+         palette = "Pastel1", 
+         add = "mean",
+         add.params = list(fill = "Time"))
+
+figure
+```
+```{r}
+ggexport(figure,
+         filename = "figure.png", 
+         width = 2800,
+         height = 1728,
+         res = 300,
+         verbose = TRUE)
+```
+
